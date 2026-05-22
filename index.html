@@ -1,1 +1,318 @@
-
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>SentiStar — Analisis Sentimen Ulasan</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;700;800&family=DM+Mono:wght@400;500&family=DM+Sans:wght@300;400;500&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+ 
+  <div class="noise"></div>
+ 
+  <header>
+    <div class="logo">SENTI<span>STAR</span></div>
+    <div class="tagline">Analisis sentimen ulasan produk · Berbasis AI + Rating</div>
+  </header>
+ 
+  <main>
+    <section class="hero">
+      <h1>Apa kata<br/><em>pelangganmu?</em></h1>
+      <p class="sub">Masukkan ulasan dan bintang rating — AI akan membaca maknanya, bahkan kalau pakai bahasa gaul.</p>
+    </section>
+ 
+    <!-- ── Form ──────────────────────────────────────────── -->
+    <div class="form-card">
+      <div class="field">
+        <label for="ulasan">Teks Ulasan</label>
+        <textarea id="ulasan" rows="4" placeholder="Contoh: skibidi sigma ini barang, anjay keren banget..."></textarea>
+      </div>
+ 
+      <div class="field">
+        <label>Rating Bintang</label>
+        <div class="stars" id="stars">
+          <button class="star" data-val="1" aria-label="1 bintang">★</button>
+          <button class="star" data-val="2" aria-label="2 bintang">★</button>
+          <button class="star" data-val="3" aria-label="3 bintang">★</button>
+          <button class="star" data-val="4" aria-label="4 bintang">★</button>
+          <button class="star" data-val="5" aria-label="5 bintang">★</button>
+        </div>
+        <span class="star-label" id="star-label">Belum dipilih</span>
+      </div>
+ 
+      <button class="btn-analyze" id="btn-analyze" disabled>
+        <span class="btn-text">Analisis Sekarang</span>
+        <span class="btn-loader" hidden>
+          <span class="dot"></span><span class="dot"></span><span class="dot"></span>
+        </span>
+      </button>
+    </div>
+ 
+    <!-- ── Result inline (muncul di bawah form) ──────────── -->
+    <div class="result-card" id="result-card" hidden>
+      <div class="result-top">
+        <div class="result-label-wrap">
+          <span class="result-label-hint">Hasil Analisis</span>
+          <div class="result-badge" id="result-badge">—</div>
+        </div>
+        <div class="gauge-wrap">
+          <svg class="gauge" viewBox="0 0 120 70" xmlns="http://www.w3.org/2000/svg">
+            <path class="gauge-bg"  d="M10,65 A55,55 0 0,1 110,65" fill="none" stroke-width="10" stroke-linecap="round"/>
+            <path class="gauge-fill" id="gauge-fill" d="M10,65 A55,55 0 0,1 110,65" fill="none" stroke-width="10" stroke-linecap="round" stroke-dasharray="173" stroke-dashoffset="173"/>
+            <text class="gauge-pct" id="gauge-pct" x="60" y="62" text-anchor="middle">0%</text>
+          </svg>
+          <div class="gauge-sub">Skor fusi</div>
+        </div>
+      </div>
+ 
+      <div class="result-pills">
+        <span class="pill pill-model" id="pill-model">—</span>
+        <span class="pill pill-bobot" id="pill-bobot">—</span>
+        <span class="pill pill-slang" id="pill-slang" hidden>🔤 Slang terdeteksi</span>
+        <span class="pill pill-fix"   id="pill-fix"   hidden>⚡ Dikoreksi rating</span>
+      </div>
+ 
+      <div class="result-detail">
+        <div class="detail-row">
+          <span class="dl">Prediksi model</span>
+          <span class="dv" id="dv-model">—</span>
+        </div>
+        <div class="detail-row">
+          <span class="dl">Confidence model</span>
+          <span class="dv" id="dv-conf">—</span>
+        </div>
+        <div class="detail-row">
+          <span class="dl">Bobot model / rating</span>
+          <span class="dv" id="dv-bobot">—</span>
+        </div>
+      </div>
+ 
+      <!-- Bar perbandingan distribusi fusi -->
+      <div class="dist-bars" id="dist-bars"></div>
+    </div>
+ 
+    <!-- ── History ─────────────────────────────────────────── -->
+    <section class="history-section" id="history-section" hidden>
+      <div class="history-header">
+        <h2>Riwayat Sesi</h2>
+        <button class="btn-clear" id="btn-clear">Hapus semua</button>
+      </div>
+      <div class="history-list" id="history-list"></div>
+    </section>
+ 
+  </main>
+ 
+  <footer>
+    <span>SentiStar · Model: indonesian-roberta-base · Semua analisis hanya tampil di browser</span>
+  </footer>
+ 
+  <script>
+    const API_BASE = "https://sentistar-beta1-test-production.up.railway.app";
+ 
+    // ── Star rating ──────────────────────────────────────────────────
+    const starBtns   = document.querySelectorAll(".star");
+    const starLabel  = document.getElementById("star-label");
+    const btnAnalyze = document.getElementById("btn-analyze");
+    const ulasanTA   = document.getElementById("ulasan");
+    const starLabels = ["","Sangat kecewa","Kecewa","Cukup","Puas","Sangat puas"];
+    let selectedStar = 0;
+ 
+    starBtns.forEach(btn => {
+      btn.addEventListener("click", () => {
+        selectedStar = +btn.dataset.val;
+        starLabel.textContent = `${selectedStar} bintang — ${starLabels[selectedStar]}`;
+        starBtns.forEach(b => b.classList.toggle("active", +b.dataset.val <= selectedStar));
+        checkReady();
+      });
+      btn.addEventListener("mouseenter", () =>
+        starBtns.forEach(b => b.classList.toggle("hover", +b.dataset.val <= +btn.dataset.val))
+      );
+      btn.addEventListener("mouseleave", () =>
+        starBtns.forEach(b => b.classList.remove("hover"))
+      );
+    });
+ 
+    ulasanTA.addEventListener("input", checkReady);
+    function checkReady() {
+      btnAnalyze.disabled = !(ulasanTA.value.trim() && selectedStar > 0);
+    }
+ 
+    // ── Analyze ──────────────────────────────────────────────────────
+    const SC = { Positif:"#22c55e", Netral:"#f59e0b", Negatif:"#ef4444" };
+    let history = [];
+ 
+    btnAnalyze.addEventListener("click", async () => {
+      const teks    = ulasanTA.value.trim();
+      const bintang = selectedStar;
+ 
+      btnAnalyze.querySelector(".btn-text").hidden  = true;
+      btnAnalyze.querySelector(".btn-loader").hidden = false;
+      btnAnalyze.disabled = true;
+ 
+      try {
+        const res  = await fetch(`${API_BASE}/analyze`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ teks, bintang })
+        });
+        if (!res.ok) throw new Error(await res.text());
+        const data = await res.json();
+        showResult(data, teks, bintang);
+        addHistory(teks, bintang, data);
+      } catch (err) {
+        alert("Gagal menghubungi server:\n" + err.message);
+      } finally {
+        btnAnalyze.querySelector(".btn-text").hidden  = false;
+        btnAnalyze.querySelector(".btn-loader").hidden = true;
+        btnAnalyze.disabled = false;
+      }
+    });
+ 
+    // ── Render result ────────────────────────────────────────────────
+    function showResult(d, teks, bintang) {
+      const card = document.getElementById("result-card");
+      card.hidden = false;
+      card.classList.remove("animate-in");
+      void card.offsetWidth;
+      card.classList.add("animate-in");
+ 
+      // Badge
+      const badge = document.getElementById("result-badge");
+      badge.textContent = d.label_akhir;
+      badge.style.color = SC[d.label_akhir];
+ 
+      // Gauge animation
+      const pct = Math.round(d.skor_akhir * 100);
+      const offset = 173 - (173 * d.skor_akhir);
+      const fill = document.getElementById("gauge-fill");
+      fill.style.stroke = SC[d.label_akhir];
+      fill.style.strokeDashoffset = "173";
+      requestAnimationFrame(() => {
+        fill.style.transition = "stroke-dashoffset 0.8s cubic-bezier(.4,0,.2,1)";
+        fill.style.strokeDashoffset = offset;
+      });
+      document.getElementById("gauge-pct").textContent = pct + "%";
+ 
+      // Pills
+      document.getElementById("pill-model").textContent =
+        `Model: ${d.label_model} (${(d.conf_model*100).toFixed(0)}%)`;
+      document.getElementById("pill-bobot").textContent =
+        `Model ${Math.round(d.bobot_model*100)}% · Rating ${Math.round(d.bobot_rating*100)}%`;
+      document.getElementById("pill-slang").hidden = !d.ada_slang;
+      document.getElementById("pill-fix").hidden   = !d.berubah;
+ 
+      // Detail rows
+      document.getElementById("dv-model").textContent  = d.label_model;
+      document.getElementById("dv-conf").textContent   = (d.conf_model*100).toFixed(1) + "%";
+      document.getElementById("dv-bobot").textContent  =
+        `Model ${Math.round(d.bobot_model*100)}% · Rating ${Math.round(d.bobot_rating*100)}%`;
+ 
+      // Distribution bars
+      renderDistBars(d);
+ 
+      card.scrollIntoView({ behavior: "smooth", block: "nearest" });
+    }
+ 
+    function renderDistBars(d) {
+      const labels = ["Positif","Netral","Negatif"];
+ 
+      const sModel = d.conf_model;
+      const lModel = d.label_model;
+      const distM  = { Positif: (1-sModel)/2, Netral: (1-sModel)/2, Negatif: (1-sModel)/2 };
+      distM[lModel] = sModel;
+ 
+      const ratingMap = {
+        1:{Positif:.05,Netral:.10,Negatif:.85},
+        2:{Positif:.10,Netral:.20,Negatif:.70},
+        3:{Positif:.20,Netral:.60,Negatif:.20},
+        4:{Positif:.70,Netral:.20,Negatif:.10},
+        5:{Positif:.85,Netral:.10,Negatif:.05},
+      };
+ 
+      const fusi = currentFusi;
+ 
+      const container = document.getElementById("dist-bars");
+      container.innerHTML = labels.map(lb => {
+        const val = fusi ? fusi[lb] : (lb === d.label_akhir ? d.skor_akhir : (1-d.skor_akhir)/2);
+        const pct = Math.round(val * 100);
+        return `
+          <div class="dist-row">
+            <span class="dist-lbl">${lb}</span>
+            <div class="dist-track">
+              <div class="dist-bar" style="width:0%;background:${SC[lb]}"
+                   data-target="${pct}"></div>
+            </div>
+            <span class="dist-pct">${pct}%</span>
+          </div>`;
+      }).join("");
+ 
+      requestAnimationFrame(() => {
+        container.querySelectorAll(".dist-bar").forEach(bar => {
+          const t = bar.dataset.target;
+          bar.style.transition = "width 0.7s cubic-bezier(.4,0,.2,1)";
+          bar.style.width = t + "%";
+        });
+      });
+    }
+ 
+    let currentFusi = null;
+ 
+    // ── History ──────────────────────────────────────────────────────
+    function addHistory(teks, bintang, d) {
+      const sModel = d.conf_model;
+      const lModel = d.label_model;
+      const distM  = {Positif:(1-sModel)/2, Netral:(1-sModel)/2, Negatif:(1-sModel)/2};
+      distM[lModel] = sModel;
+      const ratingMap = {
+        1:{Positif:.05,Netral:.10,Negatif:.85},
+        2:{Positif:.10,Netral:.20,Negatif:.70},
+        3:{Positif:.20,Netral:.60,Negatif:.20},
+        4:{Positif:.70,Netral:.20,Negatif:.10},
+        5:{Positif:.85,Netral:.10,Negatif:.05},
+      };
+      const distR = ratingMap[bintang];
+      const bm = d.bobot_model, br = d.bobot_rating;
+      currentFusi = {
+        Positif: bm*distM.Positif + br*distR.Positif,
+        Netral:  bm*distM.Netral  + br*distR.Netral,
+        Negatif: bm*distM.Negatif + br*distR.Negatif,
+      };
+ 
+      history.unshift({ teks, bintang, ...d, fusi: currentFusi });
+      renderHistory();
+      document.getElementById("history-section").hidden = false;
+    }
+ 
+    function renderHistory() {
+      document.getElementById("history-list").innerHTML =
+        history.slice(0, 20).map((h, i) => `
+          <div class="history-item" data-i="${i}">
+            <div class="hi-left">
+              <div class="hi-stars">${"★".repeat(h.bintang)}${"☆".repeat(5-h.bintang)}</div>
+              <div class="hi-teks">${escHtml(h.teks)}</div>
+            </div>
+            <div class="hi-right">
+              <span class="hi-label" style="color:${SC[h.label_akhir]}">${h.label_akhir}</span>
+              ${h.ada_slang ? '<span class="hi-tag">slang</span>' : ''}
+              ${h.berubah   ? '<span class="hi-tag hi-tag-fix">koreksi</span>' : ''}
+            </div>
+          </div>`).join("");
+    }
+ 
+    document.getElementById("btn-clear").addEventListener("click", () => {
+      history = [];
+      document.getElementById("history-section").hidden = true;
+      document.getElementById("result-card").hidden = true;
+      currentFusi = null;
+    });
+ 
+    function escHtml(s) {
+      return s.replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
+    }
+ 
+    btnAnalyze.addEventListener("click", () => {}, { capture: true });
+  </script>
+</body>
+</html>
