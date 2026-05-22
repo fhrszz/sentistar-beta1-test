@@ -1,1 +1,1 @@
-# sentistar-beta1-test
+dibuat dengan iseng selama 5 jam
